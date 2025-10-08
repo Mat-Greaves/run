@@ -3,6 +3,7 @@ package run_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"testing/synctest"
@@ -30,6 +31,15 @@ func TestFunc(t *testing.T) {
 	if !errors.Is(err, innerErr) {
 		t.Fatalf("err tree does not contain innerErr")
 	}
+}
+
+func ExampleFunc() {
+	f := run.Func(func(ctx context.Context) error {
+		fmt.Println("Hello, World!")
+		return nil
+	})
+	_ = f.Run(context.Background())
+	// Output: Hello, World!
 }
 
 func TestSequence(t *testing.T) {
@@ -78,6 +88,21 @@ func TestSequence(t *testing.T) {
 			t.Fatalf("got count %d want 1", count)
 		}
 	})
+}
+
+func ExampleSequence() {
+	r := run.Sequence{
+		run.Func(func(ctx context.Context) error {
+			fmt.Print("one")
+			return nil
+		}),
+		run.Func(func(ctx context.Context) error {
+			fmt.Print(" two")
+			return nil
+		}),
+	}
+	_ = r.Run(context.Background())
+	// Output: one two
 }
 
 func TestGroup(t *testing.T) {
@@ -166,10 +191,25 @@ func TestGroup(t *testing.T) {
 			}
 			wait <- struct{}{}
 		})
+	})
 
+	t.Run("catch panic", func(t *testing.T) {
+		t.Parallel()
+		synctest.Test(t, func(t *testing.T) {
+			g := run.Group{
+				"foo": run.Func(func(ctx context.Context) error {
+					panic(innerErr)
+				}),
+			}
+			err := g.Run(t.Context())
+			if !errors.Is(err, innerErr) {
+				t.Error("expected innerErr got", err)
+			}
+		})
 	})
 
 	t.Run("don't cancel on early return", func(t *testing.T) {
+		t.Parallel()
 		synctest.Test(t, func(t *testing.T) {
 			g := run.Group{
 				"foo": run.Func(func(ctx context.Context) error {
@@ -216,5 +256,84 @@ func TestOnce(t *testing.T) {
 		}))
 		is.New(t).True(errors.Is(r.Run(t.Context()), innerErr))
 		is.New(t).True(errors.Is(r.Run(t.Context()), innerErr))
+	})
+}
+
+func ExampleOnce() {
+	r := run.Once(run.Func(func(_ context.Context) error {
+		fmt.Println("Hello, World!")
+		return nil
+	}))
+	r.Run(context.Background())
+	r.Run(context.Background())
+	// Output: Hello, World!
+}
+
+func TestGo(t *testing.T) {
+	t.Parallel()
+
+	t.Run("runs", func(t *testing.T) {
+		t.Parallel()
+		var count int
+		res := make(chan error)
+		run.Go(t.Context(), run.Func(func(ctx context.Context) error {
+			count++
+			return nil
+		}), res)
+		err := <-res
+		if err != nil {
+			t.Fatal("expected nil got", err)
+		}
+		if count != 1 {
+			t.Error("expected 1 got", count)
+		}
+	})
+
+	t.Run("errors", func(t *testing.T) {
+		t.Parallel()
+		res := make(chan error)
+		run.Go(t.Context(), run.Func(func(ctx context.Context) error {
+			return innerErr
+		}), res)
+		err := <-res
+		if !errors.Is(err, innerErr) {
+			t.Error("expected innerErr got", err)
+		}
+	})
+
+	t.Run("panics error", func(t *testing.T) {
+		t.Parallel()
+		res := make(chan error)
+		run.Go(t.Context(), run.Func(func(ctx context.Context) error {
+			panic(innerErr)
+		}), res)
+		err := <-res
+		if !errors.Is(err, innerErr) {
+			t.Error("expected innerErr got", err)
+		}
+	})
+
+	t.Run("panics value", func(t *testing.T) {
+		t.Parallel()
+		res := make(chan error)
+		run.Go(t.Context(), run.Func(func(ctx context.Context) error {
+			panic("eek")
+		}), res)
+		err := <-res
+		if !strings.Contains(err.Error(), "eek") {
+			t.Error("expected err to contain 'eek' got", err.Error())
+		}
+	})
+}
+
+func TestIdle(t *testing.T) {
+	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(t.Context(), 500*time.Millisecond)
+		defer cancel()
+		err := run.Idle.Run(ctx)
+		if err != nil {
+			t.Error("expected nil, got", err)
+		}
 	})
 }

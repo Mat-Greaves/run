@@ -56,6 +56,9 @@ var _ Runner = Group{}.WithoutCancel()
 //
 // Runners have until [ShutdownTimeout] to exit or the group will exit in a [ErrTimeout] wrapping
 // the original cause for the shutdown.
+//
+// Group will catch panics within members and propagate them as errors instead gracefully terminating
+// other members.
 type Group map[string]Runner
 
 func (g Group) Run(ctx context.Context) error {
@@ -83,7 +86,17 @@ func (g Group) run(ctx context.Context, cancelOnExit bool) error {
 
 	for name, r := range g {
 		go func() {
-			// TODO: handle panics in runner gracefully
+			defer func() {
+				if r := recover(); r != nil {
+					var err error
+					if _, is := r.(error); is {
+						err = fmt.Errorf("run.Group recover: %w", r.(error))
+					} else {
+						err = fmt.Errorf("run.Group recover: %v", r)
+					}
+					errs <- groupErr{runner: name, err: err}
+				}
+			}()
 			err := r.Run(ctx)
 			errs <- groupErr{
 				runner: name,
@@ -105,10 +118,10 @@ func (g Group) run(ctx context.Context, cancelOnExit bool) error {
 			exited[gerr.runner] = true
 
 			if cause == nil && gerr.err != nil {
-				cause = fmt.Errorf("group[%s]: %w", gerr.runner, gerr.err)
+				cause = fmt.Errorf("run.Group[%s]: %w", gerr.runner, gerr.err)
 			}
 			if gerr.err == nil && cancelOnExit && cause == nil {
-				cause = fmt.Errorf("group[%s]: %w", gerr.runner, ErrExited)
+				cause = fmt.Errorf("run.Group[%s]: %w", gerr.runner, ErrExited)
 			}
 			if cause != nil {
 				cancel()
@@ -141,3 +154,31 @@ func Once(r Runner) Runner {
 		return err
 	})
 }
+
+// Execute r in a Goroutine pushing the return value into res.
+//
+// Recovers panics from r returning them as an error instead. If r panics with a
+// error the returned error will wrap that error.
+func Go(ctx context.Context, r Runner, res chan<- error) {
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				if err, is := r.(error); is {
+					res <- fmt.Errorf("run.Go recover: %w", err)
+					return
+				}
+				res <- fmt.Errorf("run.Go recover: %v", r)
+			}
+		}()
+		res <- r.Run(ctx)
+	}()
+}
+
+// Idle is a [Runner] that does nothing waiting for ctx to be cancelled.
+//
+// Idle can be useful as the last member of a [Sequence] if you don't want the Sequence
+// to return causing sibling runners to be cancelled, such as within a [Group].
+var Idle = Func(func(ctx context.Context) error {
+	<-ctx.Done()
+	return nil
+})
