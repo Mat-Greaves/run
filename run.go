@@ -73,6 +73,7 @@ func (g Group) WithoutCancel() Runner {
 }
 
 func (g Group) run(ctx context.Context, cancelOnExit bool) error {
+	inCtx := ctx
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -138,6 +139,10 @@ func (g Group) run(ctx context.Context, cancelOnExit bool) error {
 		}
 	}
 
+	// avoid spurious errors from being told cancel
+	if inCtx.Err() == context.Canceled {
+		return nil
+	}
 	return cause
 }
 

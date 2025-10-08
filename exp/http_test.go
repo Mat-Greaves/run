@@ -1,0 +1,31 @@
+package exp_test
+
+import (
+	"io"
+	"net/http"
+	"strings"
+	"testing"
+
+	"github.com/Mat-Greaves/run/exp"
+	"github.com/Mat-Greaves/run/exp/ports"
+	"github.com/matryer/is"
+)
+
+func TestHTTPServer(t *testing.T) {
+	t.Parallel()
+	is := is.New(t)
+	addr, err := ports.Random(t.Context())
+	is.NoErr(err)
+	err, stop := exp.StartHTTPServer(t.Context(), http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.Copy(w, r.Body)
+	}), addr)
+	is.NoErr(err)
+	defer stop(t)
+
+	res, err := http.DefaultClient.Post("http://"+addr, "text/plain", strings.NewReader("Hello, World!"))
+	is.NoErr(err)
+	defer res.Body.Close()
+	text, err := io.ReadAll(res.Body)
+	is.NoErr(err)
+	is.Equal(string(text), "Hello, World!")
+}
