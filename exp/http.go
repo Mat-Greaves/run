@@ -8,7 +8,6 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"testing"
 	"time"
 
 	"github.com/Mat-Greaves/run"
@@ -20,72 +19,43 @@ import (
 // the health checks.
 //
 // stop must be called to wait for the server to gracefully terminate.
-func StartHTTPServer(ctx context.Context, h http.Handler, addr string) (err error, stop func(*testing.T)) {
-	ctx, cancel := context.WithCancel(ctx)
-	ready := make(chan error)
-	defer close(ready)
-	done := make(chan error)
-	run.Go(ctx, HTTPServer(h, addr, ready), done)
-	err = <-ready
-	if err != nil {
-		// The only way this is an error is if the whole context tree has been canceled.
-		// Return the original reason the server was shutdown.
-		cancel()
-		return fmt.Errorf("http server not ready: %w", <-done), nil
-	}
-	return nil, func(t *testing.T) {
-		cancel()
-		if err := <-done; err != nil {
-			t.Error("run.StartHTTPServer: server exited with error", err)
-		}
-	}
+func StartHTTPServer(ctx context.Context, h http.Handler, addr string) (err error, stop func() error) {
+	return run.Start(ctx, HTTPServer(h, addr), Poller(addr, PollHTTP))
 }
 
 // HTTPServer returns a [Runner] that starts a basic HTTP server serving h at addr.
 //
-// ready will be closed when the service is ready to receive traffic.
-//
 // HTTPServer will shut down gracefully when the ctx passed to Run is cancelled.
-func HTTPServer(h http.Handler, addr string, ready chan<- error) run.Runner {
-	return run.Group{
-		"server": run.Func(func(ctx context.Context) error {
-			s := http.Server{
-				Addr:    addr,
-				Handler: h,
-			}
+func HTTPServer(h http.Handler, addr string) run.Runner {
+	return run.Func(func(ctx context.Context) error {
+		s := http.Server{
+			Addr:    addr,
+			Handler: h,
+		}
 
-			var serr = make(chan error)
-			go func() {
-				serr <- s.ListenAndServe()
-			}()
+		var serr = make(chan error)
+		go func() {
+			serr <- s.ListenAndServe()
+		}()
 
-			select {
-			case err := <-serr:
-				return fmt.Errorf("run.HTTPServer server exited with error: %w", err)
-			case <-ctx.Done():
-			}
+		select {
+		case err := <-serr:
+			return fmt.Errorf("run.HTTPServer server exited with error: %w", err)
+		case <-ctx.Done():
+		}
 
-			// Give 5 seconds for connections to wrap up. [Group] gives a max 10secs before the process is deemed
-			// misbehaving and not exited cleanly.
-			shutdownCtx, cancel := context.WithTimeout(context.Background(), run.ShutdownTimeout/2)
-			defer cancel()
-			if err := s.Shutdown(shutdownCtx); err != nil && !errors.Is(err, http.ErrServerClosed) {
-				return err
-			}
-			if ctx.Err() != context.Canceled {
-				return ctx.Err()
-			}
-			return nil
-		}),
-		"health_check": run.Sequence{
-			Poller(addr, PollHTTP),
-			run.Func(func(ctx context.Context) error {
-				ready <- ctx.Err()
-				return nil
-			}),
-			run.Idle,
-		},
-	}
+		// Give 5 seconds for connections to wrap up. [Group] gives a max 10secs before the process is deemed
+		// misbehaving and not exited cleanly.
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), run.ShutdownTimeout/2)
+		defer cancel()
+		if err := s.Shutdown(shutdownCtx); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			return err
+		}
+		if ctx.Err() != context.Canceled {
+			return ctx.Err()
+		}
+		return nil
+	})
 }
 
 type PollMode int

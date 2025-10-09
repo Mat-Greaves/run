@@ -187,3 +187,55 @@ var Idle = Func(func(ctx context.Context) error {
 	<-ctx.Done()
 	return nil
 })
+
+// Start runs runner in a detatched state returning when runner is ready to be interacted with determined by ready returning nil.
+//
+// If r does not become ready either because r returns either a nil or non-nil error, ready returns a non-nil
+// error, or ctx.Err() returns a non-nil error then err will be non-nil with the cause.
+//
+// stop must be called in order to terminate r gracefully. If r returns an error after being signalled to shut
+// down through the context passed to its Run method being cancelled then stop will record an error on its testing.T.
+//
+// pass a nil testing.T to avoid this behaviour.
+func Start(ctx context.Context, runner Runner, ready Runner) (err error, stop func() error) {
+	ctx, cancel := context.WithCancel(ctx)
+	readych := make(chan error)
+	defer close(readych)
+	done := make(chan error)
+	Go(ctx, Ready(runner, ready, readych), done)
+	err = <-readych
+	if err != nil {
+		// The only way this is an error is if the whole context tree has been canceled.
+		// Return the original reason the server was shutdown.
+		cancel()
+		return fmt.Errorf("runner not ready: %w", <-done), nil
+	}
+	return nil, func() error {
+		cancel()
+		if err := <-done; err != nil {
+			return fmt.Errorf("run.Start: runner shutdown with error: %w", err)
+		}
+		return nil
+	}
+}
+
+// Ready takes a runner that starts a long-lived process that needs to be checked by ready before it
+// is ready to be interacted with.
+//
+// If the context passed to Run is cancelled before the server ready then a non-nil error
+// will be passed to readych.
+//
+// ready is responsible for returning `nil` when it detects that server is ready to receive traffic.
+func Ready(runner Runner, ready Runner, readych chan<- error) Runner {
+	return Group{
+		"runner": runner,
+		"ready": Sequence{
+			ready,
+			Func(func(ctx context.Context) error {
+				readych <- ctx.Err()
+				return nil
+			}),
+			Idle,
+		},
+	}
+}

@@ -20,7 +20,7 @@ func TestHTTPServer(t *testing.T) {
 		_, _ = io.Copy(w, r.Body)
 	}), addr)
 	is.NoErr(err)
-	defer stop(t)
+	defer noErr(t, stop)
 
 	res, err := http.DefaultClient.Post("http://"+addr, "text/plain", strings.NewReader("Hello, World!"))
 	is.NoErr(err)
@@ -28,4 +28,10 @@ func TestHTTPServer(t *testing.T) {
 	text, err := io.ReadAll(res.Body)
 	is.NoErr(err)
 	is.Equal(string(text), "Hello, World!")
+}
+
+func noErr(t *testing.T, f func() error) {
+	if err := f(); err != nil {
+		t.Error(err)
+	}
 }
