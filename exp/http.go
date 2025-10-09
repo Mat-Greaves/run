@@ -10,7 +10,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/Mat-Greaves/run"
+	"github.com/matgreaves/run"
 )
 
 // StartHTTPServer starts a [HTTPServer] returning once the server is ready to accept traffic.

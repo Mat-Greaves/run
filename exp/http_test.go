@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Mat-Greaves/run/exp"
-	"github.com/Mat-Greaves/run/exp/ports"
+	"github.com/matgreaves/run/exp"
+	"github.com/matgreaves/run/exp/ports"
 	"github.com/matryer/is"
 )
 
