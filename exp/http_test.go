@@ -16,6 +16,7 @@ func TestHTTPServer(t *testing.T) {
 	is := is.New(t)
 	addr, err := ports.Random(t.Context())
 	is.NoErr(err)
+
 	err, stop := exp.StartHTTPServer(t.Context(), http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.Copy(w, r.Body)
 	}), addr)

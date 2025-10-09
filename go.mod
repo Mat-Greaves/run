@@ -1,4 +1,4 @@
-module github.com/Mat-Greaves/run
+module github.com/matgreaves/run
 
 go 1.25.1
 
