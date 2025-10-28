@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"testing"
 
-	"github.com/Mat-Greaves/run"
+	"github.com/matgreaves/run"
 	"github.com/matryer/is"
 )
 

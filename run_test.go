@@ -9,7 +9,7 @@ import (
 	"testing/synctest"
 	"time"
 
-	"github.com/Mat-Greaves/run"
+	"github.com/matgreaves/run"
 	"github.com/matryer/is"
 )
 
