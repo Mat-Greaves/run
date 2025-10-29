@@ -2,10 +2,13 @@ package run
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"os/exec"
 	"path/filepath"
 	"syscall"
+
+	"github.com/matgreaves/run/onexit"
 )
 
 var _ Runner = Process{}
@@ -64,9 +67,15 @@ func (p Process) Run(ctx context.Context) error {
 		return err
 	}
 
-	// TODO: Handle making sure things are really dead even if this program doesn't exit gracefully
+	cancel, err := onexit.Kill(p.Name, -cmd.Process.Pid, syscall.SIGKILL)
+	if err != nil {
+		cmd.Cancel()
+		return fmt.Errorf("run: failed to register killer: %w", err)
+	}
+	defer cancel()
 
-	return cmd.Wait()
+	err = cmd.Wait()
+	return err
 }
 
 func Command(cmd string, args ...string) Process {
